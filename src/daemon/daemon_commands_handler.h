@@ -374,10 +374,31 @@ private:
     }
 
     bool smart = false;
-    if (args.front() == "--smart-mining")
+    bool battery = false;
+    std::vector<std::string>::const_iterator it = args.begin();
+    while (it != args.end())
     {
-      smart = true;
-      args.pop_front();
+      if (it->length() > 0 && (*it)[0] == '-')
+      {
+        if (*it == "--smart-mining")
+        {
+          smart = true;
+        }
+        else if (*it == "--battery-save")
+        {
+          battery = true;
+        }
+        else
+        {
+          std::cout << "Invalid flag passed: " << *it << std::endl;
+          return true;
+        }
+        it = args.erase(it);
+      }
+      else
+      {
+        it++;
+      }
     }
     cryptonote::account_public_address adr;
     if(!cryptonote::get_account_address_from_str(adr, m_testnet, args.front()))
