@@ -373,6 +373,12 @@ private:
       return true;
     }
 
+    bool smart = false;
+    if (args.front() == "--smart-mining")
+    {
+      smart = true;
+      args.pop_front();
+    }
     cryptonote::account_public_address adr;
     if(!cryptonote::get_account_address_from_str(adr, m_testnet, args.front()))
     {
@@ -389,7 +395,7 @@ private:
     boost::thread::attributes attrs;
     attrs.set_stack_size(THREAD_STACK_SIZE);
 
-    m_srv.get_payload_object().get_core().get_miner().start(adr, threads_count, attrs);
+    m_srv.get_payload_object().get_core().get_miner().start(adr, threads_count, attrs, smart);
     return true;
   }
   //--------------------------------------------------------------------------------

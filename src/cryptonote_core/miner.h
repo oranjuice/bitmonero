@@ -74,9 +74,11 @@ namespace cryptonote
     void pause();
     void resume();
     void do_print_hashrate(bool do_hr);
+    static uint64_t system_check_period;
 
   private:
     bool worker_thread();
+    bool smart_miner_thread();
     bool request_block_template();
     void  merge_hr();
     
@@ -99,10 +101,11 @@ namespace cryptonote
     uint64_t m_height;
     volatile uint32_t m_thread_index; 
     volatile uint32_t m_threads_total;
-    std::atomic<int32_t> m_pausers_count;
-    epee::critical_section m_miners_count_lock;
+    std::atomic<int32_t> m_is_paused;
+    epee::critical_section m_is_paused_lock;
 
     std::list<boost::thread> m_threads;
+    boost::thread *m_smart_controller_thread;
     epee::critical_section m_threads_lock;
     i_miner_handler* m_phandler;
     account_public_address m_mine_address;
@@ -118,7 +121,7 @@ namespace cryptonote
     std::list<uint64_t> m_last_hash_rates;
     bool m_do_print_hashrate;
     bool m_do_mining;
-
+    bool m_is_smart_mining;
   };
 }
 

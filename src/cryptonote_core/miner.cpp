@@ -50,6 +50,9 @@ using namespace epee;
 
 extern "C" void slow_hash_allocate_state();
 extern "C" void slow_hash_free_state();
+
+cryptonote::miner::system_check_period = 5000;
+
 namespace cryptonote
 {
 
@@ -228,7 +231,7 @@ namespace cryptonote
     return m_threads_total;
   }
   //----------------------------------------------------------------------------------------------------- 
-  bool miner::start(const account_public_address& adr, size_t threads_count, const boost::thread::attributes& attrs)
+  bool miner::start(const account_public_address& adr, size_t threads_count, const boost::thread::attributes& attrs, bool smart)
   {
     m_mine_address = adr;
     m_threads_total = static_cast<uint32_t>(threads_count);
@@ -252,6 +255,12 @@ namespace cryptonote
     boost::interprocess::ipcdetail::atomic_write32(&m_stop, 0);
     boost::interprocess::ipcdetail::atomic_write32(&m_thread_index, 0);
 
+    if (smart)
+    {
+      m_smart_controller_thread = new boost::thread(attrs, boost::bind(&miner::smart_miner_thread, this));
+      LOG_PRINT_L0("Smart mining has started with " << threads_count << " threads, good luck!" )
+      return true;
+    }
     for(size_t i = 0; i != threads_count; i++)
     {
       m_threads.push_back(boost::thread(attrs, boost::bind(&miner::worker_thread, this)));
@@ -317,23 +326,41 @@ namespace cryptonote
   //-----------------------------------------------------------------------------------------------------
   void miner::pause()
   {
-    CRITICAL_REGION_LOCAL(m_miners_count_lock);
-    ++m_pausers_count;
-    if(m_pausers_count == 1 && is_mining())
-      LOG_PRINT_L2("MINING PAUSED");
+    CRITICAL_REGION_LOCAL(m_is_paused_lock);
+    if (m_is_paused)
+    {
+      LOG_PRINT_L2("Mining has already paused");
+      return;
+    }
+    if (is_mining())
+    {
+      m_is_paused = true;
+      LOG_PRINT_L2("Mining paused");
+    }
+    else
+    {
+      LOG_PRINT_L2("Mining has already stopped")
+    }
   }
   //-----------------------------------------------------------------------------------------------------
   void miner::resume()
   {
-    CRITICAL_REGION_LOCAL(m_miners_count_lock);
-    --m_pausers_count;
-    if(m_pausers_count < 0)
+    CRITICAL_REGION_LOCAL(m_is_paused_lock);
+    if (!m_is_paused)
     {
-      m_pausers_count = 0;
-      LOG_PRINT_RED_L0("Unexpected miner::resume() called");
+      LOG_PRINT_RED_L0("Mining wasn't paused. Can't resume.");
+      return;
     }
-    if(!m_pausers_count && is_mining())
-      LOG_PRINT_L2("MINING RESUMED");
+    if (!is_mining())
+    {
+      LOG_PRINT_L2("Mining has stopped. Can't resume.");
+    }
+    else
+    {
+      m_is_paused = false;
+      LOG_PRINT_L2("Mining resumed");
+    }
+
   }
   //-----------------------------------------------------------------------------------------------------
   bool miner::worker_thread()
@@ -400,5 +427,9 @@ namespace cryptonote
     return true;
   }
   //-----------------------------------------------------------------------------------------------------
+  bool miner::smart_miner_thread()
+  {
+
+  }
 }
 
