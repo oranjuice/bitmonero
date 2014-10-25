@@ -365,28 +365,33 @@ private:
     LOG_PRINT_L0("Pool state: " << ENDL << m_srv.get_payload_object().get_core().print_pool(true));
     return true;
   }  //--------------------------------------------------------------------------------
-  bool start_mining(const std::vector<std::string>& args)
+  bool start_mining(std::vector<std::string> args)
   {
+    if (m_srv.get_payload_object().get_core().get_miner().is_mining())
+    {
+      std::cout << "Mining already in progress" << std::endl;
+      return true;
+    }
     if(!args.size())
     {
       std::cout << "Please, specify wallet address to mine for: start_mining <addr> [threads=1]" << std::endl;
       return true;
     }
 
-    bool smart = false;
-    bool battery = false;
-    std::vector<std::string>::const_iterator it = args.begin();
+    bool cpu_smart = false;
+    bool battery_smart = false;
+    std::vector<std::string>::iterator it = args.begin();
     while (it != args.end())
     {
       if (it->length() > 0 && (*it)[0] == '-')
       {
-        if (*it == "--smart-mining")
+        if (*it == "--cpu-smart")
         {
-          smart = true;
+          cpu_smart = true;
         }
-        else if (*it == "--battery-save")
+        else if (*it == "--battery-smart")
         {
-          battery = true;
+          battery_smart = true;
         }
         else
         {
@@ -413,10 +418,8 @@ private:
       threads_count = (ok && 0 < threads_count) ? threads_count : 1;
     }
 
-    boost::thread::attributes attrs;
-    attrs.set_stack_size(THREAD_STACK_SIZE);
-
-    m_srv.get_payload_object().get_core().get_miner().start(adr, threads_count, attrs, smart);
+    m_srv.get_payload_object().get_core().get_miner().start(adr, threads_count,
+      cpu_smart, battery_smart);
     return true;
   }
   //--------------------------------------------------------------------------------

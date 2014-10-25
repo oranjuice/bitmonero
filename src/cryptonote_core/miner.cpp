@@ -42,6 +42,7 @@
 #include "common/command_line.h"
 #include "string_coding.h"
 #include "storages/portable_storage_template_helper.h"
+#include <boost/date_time/posix_time/posix_time.hpp>
 
 using namespace epee;
 
@@ -51,7 +52,7 @@ using namespace epee;
 extern "C" void slow_hash_allocate_state();
 extern "C" void slow_hash_free_state();
 
-cryptonote::miner::system_check_period = 5000;
+uint64_t cryptonote::miner::system_check_period = 5000;
 
 namespace cryptonote
 {
@@ -71,7 +72,7 @@ namespace cryptonote
     m_thread_index(0),
     m_phandler(phandler),
     m_height(0),
-    m_pausers_count(0), 
+    m_is_paused(false), 
     m_threads_total(0),
     m_starter_nonce(0), 
     m_last_hr_merge_time(0),
@@ -231,37 +232,42 @@ namespace cryptonote
     return m_threads_total;
   }
   //----------------------------------------------------------------------------------------------------- 
-  bool miner::start(const account_public_address& adr, size_t threads_count, const boost::thread::attributes& attrs, bool smart)
+  bool miner::start(const account_public_address& adr, size_t threads_count, bool cpu_saving,
+    bool battery_saving)
   {
+    if (is_mining() && !m_is_cpu_saving && !!m_is_battery_saving)
+    {
+      LOG_ERROR("Mining already in progress");
+      return false;
+    }
     m_mine_address = adr;
     m_threads_total = static_cast<uint32_t>(threads_count);
     m_starter_nonce = crypto::rand<uint32_t>();
     CRITICAL_REGION_LOCAL(m_threads_lock);
-    if(is_mining())
-    {
-      LOG_ERROR("Starting miner but it's already started");
-      return false;
-    }
 
-    if(!m_threads.empty())
+    if (!m_threads.empty())
     {
       LOG_ERROR("Unable to start miner because there are active mining threads");
       return false;
     }
 
-    if(!m_template_no)
-      request_block_template();//lets update block template
+    if (!m_template_no)
+      request_block_template(); // let's update block template
 
     boost::interprocess::ipcdetail::atomic_write32(&m_stop, 0);
     boost::interprocess::ipcdetail::atomic_write32(&m_thread_index, 0);
 
-    if (smart)
+    boost::thread::attributes attrs;
+    attrs.set_stack_size(THREAD_STACK_SIZE);
+    if (cpu_saving || battery_saving)
     {
+      m_is_cpu_saving = cpu_saving;
+      m_is_battery_saving = battery_saving;
       m_smart_controller_thread = new boost::thread(attrs, boost::bind(&miner::smart_miner_thread, this));
       LOG_PRINT_L0("Smart mining has started with " << threads_count << " threads, good luck!" )
       return true;
     }
-    for(size_t i = 0; i != threads_count; i++)
+    for (size_t i = 0; i != threads_count; i++)
     {
       m_threads.push_back(boost::thread(attrs, boost::bind(&miner::worker_thread, this)));
     }
@@ -290,10 +296,17 @@ namespace cryptonote
     send_stop_signal();
     CRITICAL_REGION_LOCAL(m_threads_lock);
 
+    if (m_is_cpu_saving || m_is_battery_saving)
+    {
+      m_smart_controller_thread->join();
+      delete m_smart_controller_thread;
+    }
     BOOST_FOREACH(boost::thread& th, m_threads)
       th.join();
 
     m_threads.clear();
+    m_is_cpu_saving = false;
+    m_is_battery_saving = false;
     LOG_PRINT_L0("Mining has been stopped, " << m_threads.size() << " finished" );
     return true;
   }
@@ -317,10 +330,7 @@ namespace cryptonote
   {
     if(m_do_mining)
     {
-      boost::thread::attributes attrs;
-      attrs.set_stack_size(THREAD_STACK_SIZE);
-
-      start(m_mine_address, m_threads_total, attrs);
+      start(m_mine_address, m_threads_total);
     }
   }
   //-----------------------------------------------------------------------------------------------------
@@ -376,7 +386,7 @@ namespace cryptonote
 	  slow_hash_allocate_state();
     while(!m_stop)
     {
-      if(m_pausers_count)//anti split workaround
+      if(m_is_paused)//anti split workaround
       {
         misc_utils::sleep_no_w(100);
         continue;
@@ -429,7 +439,13 @@ namespace cryptonote
   //-----------------------------------------------------------------------------------------------------
   bool miner::smart_miner_thread()
   {
-
+    // Start the actual mining threads
+    start(m_mine_address, m_threads_total, false, false);
+    while (!m_stop)
+    {
+      boost::this_thread::sleep(boost::posix_time::milliseconds(system_check_period));
+    }
+    return true;
   }
 }
 
