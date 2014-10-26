@@ -56,8 +56,30 @@ namespace system_stats
   /*! \brief Returns currently used system memory (used RAM) in bytes. */
   uint64_t get_used_system_memory();
 
-  /*! \brief Returns current CPU usage as a percentage. */
-  double get_cpu_usage();
+  /*! \brief Starts recording 60 second CPU usage history. */
+  bool start_recording_cpu_usage();
+
+  /*! \brief Stops recording 60 second CPU usage history. */
+  bool stop_recording_cpu_usage();
+
+  /*!
+   * \brief Tells if CPU usage is being recorded
+   * @return True if being recorded, false otherwise
+   */
+  bool is_cpu_usage_recording();
+
+  /*!
+   * \brief Tells if CPU usage has been completely buffered
+   * @return True if completely buffered, false otherwise
+   */
+  bool is_cpu_usage_buffered();
+
+  /*!
+   * \brief Returns current CPU usage as a percentage.
+   * \param  wait_duration Time between capturing two CPU snapshots in seconds
+   * \return               CPU usage percentage
+   */
+  double get_cpu_usage(uint64_t wait_duration);
 };
 
 #endif

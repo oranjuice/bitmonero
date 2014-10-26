@@ -49,30 +49,29 @@
 #include <unistd.h>
 #include <stdexcept>
 #include <cinttypes>
+#include <boost/thread.hpp>
+#include <boost/thread/mutex.hpp>
 
-/*!
- * \var const int CPU_USAGE_CHECK_WAIT_DURATION
- * \brief A (static) constant that tells the wait duration between two CPU snapshots for measuring CPU usage.
- */
-const int CPU_USAGE_CHECK_WAIT_DURATION = 1000000;
+/*! \brief History size (in seconds) of the CPU usage cache buffer */
+const cpu_usage_buffer_size = 60;
 
 namespace
 {
-  /* Gets a snapshot of CPU times till this point */
-  void get_cpu_snapshot(uint64_t &total_cpu_user_before, uint64_t &total_cpu_user_low_before,
-    uint64_t &total_cpu_sys_before, uint64_t &total_cpu_idle_before)
+  /*! \brief Gets a snapshot of CPU times till this point (not from the cache) */
+  void get_cpu_snapshot_from_file(uint64_t &total_cpu_user, uint64_t &total_cpu_user_low,
+    uint64_t &total_cpu_sys, uint64_t &total_cpu_idle)
   {
     // Get a snapshot of the how much CPU time has been spent for each type.
     FILE *file = fopen("/proc/stat", "r");
-    if (!fscanf(file, "cpu %" SCNu64 "%" SCNu64 "%" SCNu64 "%" SCNu64, &total_cpu_user_before, &total_cpu_user_low_before,
-      &total_cpu_sys_before, &total_cpu_idle_before))
+    if (!fscanf(file, "cpu %" SCNu64 "%" SCNu64 "%" SCNu64 "%" SCNu64, &total_cpu_user, &total_cpu_user_low,
+      &total_cpu_sys, &total_cpu_idle))
     {
       throw std::runtime_error("Couldn't read /proc/stat");
     }
     fclose(file);
   }
 
-  /* Find CPU usage given two snapshots */
+  /*! \brief Find CPU usage given two snapshots */
   double calculate_cpu_load(uint64_t total_cpu_user_before, uint64_t total_cpu_user_low_before,
     uint64_t total_cpu_sys_before, uint64_t total_cpu_idle_before,
     uint64_t total_cpu_user_after, uint64_t total_cpu_user_low_after,
@@ -96,6 +95,69 @@ namespace
       percent *= 100;
     }
     return percent;
+  }
+
+  /* Structure that represents a CPU snapshot */
+  struct cpu_usage_snapshot {
+    uint64_t total_cpu_user;
+    uint64_t total_cpu_user_low_before;
+    uint64_t total_cpu_sys;
+    uint64_t total_cpu_idle;
+  };
+
+  boost::atomic<bool> cpu_usage_recording_started = false;
+  boost::atomic<bool> cpu_usage_buffered = false;
+  boost::mutex cpu_usage_snapshots_mutex;
+  cpu_usage_snapshot cpu_usage_snapshots[cpu_usage_buffer_size];
+  int cpu_usage_snapshots_head = 0;
+  int cpu_usage_snapshot_count = 0;
+  boost::thread *cpu_usage_thread;
+
+  /*! \brief Records CPU usage regularly */
+  void record_cpu_usage()
+  {
+    while (cpu_usage_recording_started)
+    {
+      cpu_usage_snapshots_mutex.lock();
+      if (cpu_usage_snapshot_count < cpu_usage_buffer_size) 
+      {
+        cpu_usage_snapshot_count++;
+      }
+      else
+      {
+        cpu_usage_buffered = true;
+      }
+      cpu_usage_snapshot snapshot;
+      get_cpu_snapshot_from_file(snapshot.total_cpu_user, snapshot.total_cpu_user_low,
+        snapshot.total_cpu_sys, snapshot.total_cpu_idle);
+      cpu_usage_snapshots[head] = snapshot;
+      head = (head + 1) % cpu_usage_buffer_size;
+      cpu_usage_snapshots_mutex.unlock();
+      usleep(1000000);
+    }
+  }
+
+  /*! \brief Gets a snapshot of CPU times seconds_before seconds ago */
+  void get_cpu_snapshot(uint64_t &total_cpu_user, uint64_t &total_cpu_user_low,
+    uint64_t &total_cpu_sys, uint64_t &total_cpu_idle, uint32_t seconds_before)
+  {
+    if (!cpu_usage_recording_started || seconds_before > cpu_usage_buffer_size || seconds_before > cpu_usage_snapshot_count)
+    {
+      usleep(seconds_before * 1000000);
+      get_cpu_snapshot_from_file(&total_cpu_user, &total_cpu_user_low,
+        &total_cpu_sys, &total_cpu_idle);
+    }
+    else
+    {
+      cpu_usage_snapshots_mutex.lock();
+      cpu_usage_snapshot snapshot = cpu_usage_snapshots[(cpu_usage_snapshots_head + seconds_before) %
+        cpu_usage_buffer_size];
+      cpu_usage_snapshots_mutex.unlock();
+      total_cpu_user = snapshot.total_cpu_user;
+      total_cpu_user_low = snapshot.total_cpu_user_low;
+      total_cpu_sys = snapshot.total_cpu_sys;
+      total_cpu_idle = snapshot.total_cpu_idle;
+    }
   }
 };
 
@@ -125,8 +187,60 @@ namespace system_stats
     return used_mem;
   }
 
-  /*! \brief Returns current CPU usage as a percentage. */
-  double get_cpu_usage()
+  /*! \brief Starts recording 60 second CPU usage history. */
+  bool start_recording_cpu_usage()
+  {
+    if (cpu_usage_recording_started)
+    {
+      return false;
+    }
+    cpu_usage_recording_started = true;
+    boost::thread::attributes attrs;
+    cpu_usage_thread = new boost::thread(attrs, &record_cpu_usage);
+    return true;
+  }
+
+  /*! \brief Stops recording 60 second CPU usage history. */
+  bool stop_recording_cpu_usage()
+  {
+    if (!cpu_usage_recording_started)
+    {
+      return false;
+    }
+    cpu_usage_recording_started = false;
+    cpu_usage_buffered = false;
+    cpu_usage_snapshot_count = 0;
+    cpu_usage_snapshots_head = 0;
+    boost::thread::attributes attrs;
+    cpu_usage_thread->join();
+    delete cpu_usage_thread;
+    return true;
+  }
+
+  /*!
+   * \brief Tells if CPU usage is being recorded
+   * \return True if being recorded, false otherwise
+   */
+  bool is_cpu_usage_recording()
+  {
+    return cpu_usage_recording_started;
+  }
+
+  /*!
+   * \brief Tells if CPU usage has been completely buffered
+   * \return True if completely buffered, false otherwise
+   */
+  bool is_cpu_usage_buffered()
+  {
+    return cpu_usage_buffered;
+  }
+  
+  /*!
+   * \brief Returns current CPU usage as a percentage.
+   * \param  wait_duration Time between capturing two CPU snapshots in seconds
+   * \return               CPU usage percentage
+   */
+  double get_cpu_usage(uint64_t wait_duration)
   {
     double percent;
     uint64_t total_cpu_user_before, total_cpu_user_low_before, total_cpu_sys_before,
@@ -138,13 +252,11 @@ namespace system_stats
     {
       // Get a CPU usage snapshot
       get_cpu_snapshot(total_cpu_user_before, total_cpu_user_low_before, total_cpu_sys_before,
-        total_cpu_idle_before);
+        total_cpu_idle_before, 0);
 
-      // Wait for sometime and get another snapshot to compare against.
-      usleep(CPU_USAGE_CHECK_WAIT_DURATION);
-
+      // Get a CPU usage snapshot wait_duration seconds before
       get_cpu_snapshot(total_cpu_user_after, total_cpu_user_low_after, total_cpu_sys_after,
-        total_cpu_idle_after);
+        total_cpu_idle_after, wait_duration);
     }
     catch (std::runtime_error &e)
     {
@@ -197,8 +309,12 @@ namespace system_stats
     return used_mem;
   }
 
-  /*! \brief Returns current CPU usage as a percentage. */
-  double get_cpu_usage()
+  /*!
+   * \brief Returns current CPU usage as a percentage.
+   * \param  wait_duration Time between capturing two CPU snapshots
+   * \return               CPU usage percentage
+   */
+  double get_cpu_usage(uint64_t wait_duration)
   {
     HQUERY h_query = NULL;
     HCOUNTER h_counter = NULL;
@@ -252,10 +368,10 @@ namespace system_stats
 #include <cinttypes>
 
 /*!
- * \var const int CPU_USAGE_CHECK_WAIT_DURATION
+ * \var const int wait_duration
  * \brief A (static) constant that tells the wait duration between two CPU snapshots for measuring CPU usage.
  */
-const int CPU_USAGE_CHECK_WAIT_DURATION = 1000000;
+const int wait_duration = 1000000;
 
 namespace
 {
@@ -341,8 +457,12 @@ namespace system_stats
     return used_mem;
   }
 
-  /*! \brief Returns current CPU usage as a percentage. */
-  double get_cpu_usage()
+  /*!
+   * \brief Returns current CPU usage as a percentage.
+   * \param  wait_duration Time between capturing two CPU snapshots
+   * \return               CPU usage percentage
+   */
+  double get_cpu_usage(uint64_t wait_duration)
   {
     uint64_t total_ticks_1 = 0;
     uint64_t total_ticks_2 = 0;
@@ -354,7 +474,7 @@ namespace system_stats
     {
       // Get two CPU snapshots separated by some time.
       get_cpu_snapshot(idle_ticks_1, total_ticks_1);
-      usleep(CPU_USAGE_CHECK_WAIT_DURATION);
+      usleep(wait_duration);
       get_cpu_snapshot(idle_ticks_2, total_ticks_2);
     }
     catch (std::runtime_error &e)
