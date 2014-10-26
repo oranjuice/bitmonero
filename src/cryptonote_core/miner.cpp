@@ -43,6 +43,7 @@
 #include "string_coding.h"
 #include "storages/portable_storage_template_helper.h"
 #include <boost/date_time/posix_time/posix_time.hpp>
+#include "common/system_stats/system_stats.h"
 
 using namespace epee;
 
@@ -425,6 +426,7 @@ namespace cryptonote
     start(m_mine_address, m_threads_total);
     while (!m_stop)
     {
+      std::cout << "hi: " << system_stats::get_cpu_usage(15) << std::endl;
       boost::this_thread::sleep(boost::posix_time::milliseconds(system_check_period));
     }
     return true;

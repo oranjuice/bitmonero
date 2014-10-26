@@ -50,6 +50,7 @@ using namespace epee;
 #include "cryptonote_protocol/cryptonote_protocol_handler.h"
 #include "daemon_commands_handler.h"
 #include "version.h"
+#include "common/system_stats/system_stats.h"
 
 #if defined(WIN32)
 #include <crtdbg.h>
@@ -233,6 +234,7 @@ int main(int argc, char* argv[])
   ccore.set_cryptonote_protocol(&cprotocol);
   daemon_cmmands_handler dch(p2psrv, testnet_mode);
 
+  system_stats::start_recording_cpu_usage();
   //initialize objects
   LOG_PRINT_L0("Initializing P2P server...");
   res = p2psrv.init(vm, testnet_mode);
@@ -273,6 +275,7 @@ int main(int argc, char* argv[])
 
   LOG_PRINT_L0("Starting P2P net loop...");
   p2psrv.run();
+  system_stats::stop_recording_cpu_usage();
   LOG_PRINT_L0("P2P net loop stopped");
 
   //stop components

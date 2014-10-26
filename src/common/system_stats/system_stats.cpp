@@ -51,9 +51,12 @@
 #include <cinttypes>
 #include <boost/thread.hpp>
 #include <boost/thread/mutex.hpp>
+#include <atomic>
+
+#include <iostream>
 
 /*! \brief History size (in seconds) of the CPU usage cache buffer */
-const cpu_usage_buffer_size = 60;
+const int cpu_usage_buffer_size = 60;
 
 namespace
 {
@@ -100,13 +103,13 @@ namespace
   /* Structure that represents a CPU snapshot */
   struct cpu_usage_snapshot {
     uint64_t total_cpu_user;
-    uint64_t total_cpu_user_low_before;
+    uint64_t total_cpu_user_low;
     uint64_t total_cpu_sys;
     uint64_t total_cpu_idle;
   };
 
-  boost::atomic<bool> cpu_usage_recording_started = false;
-  boost::atomic<bool> cpu_usage_buffered = false;
+  std::atomic<bool> cpu_usage_recording_started(false);
+  std::atomic<bool> cpu_usage_buffered(false);
   boost::mutex cpu_usage_snapshots_mutex;
   cpu_usage_snapshot cpu_usage_snapshots[cpu_usage_buffer_size];
   int cpu_usage_snapshots_head = 0;
@@ -116,7 +119,7 @@ namespace
   /*! \brief Records CPU usage regularly */
   void record_cpu_usage()
   {
-    while (cpu_usage_recording_started)
+    while (cpu_usage_recording_started.load())
     {
       cpu_usage_snapshots_mutex.lock();
       if (cpu_usage_snapshot_count < cpu_usage_buffer_size) 
@@ -125,13 +128,14 @@ namespace
       }
       else
       {
-        cpu_usage_buffered = true;
+        cpu_usage_buffered.store(true);
       }
+      std::cout << "snapshot: " << cpu_usage_snapshot_count << std::endl;
       cpu_usage_snapshot snapshot;
       get_cpu_snapshot_from_file(snapshot.total_cpu_user, snapshot.total_cpu_user_low,
         snapshot.total_cpu_sys, snapshot.total_cpu_idle);
-      cpu_usage_snapshots[head] = snapshot;
-      head = (head + 1) % cpu_usage_buffer_size;
+      cpu_usage_snapshots[cpu_usage_snapshots_head] = snapshot;
+      cpu_usage_snapshots_head = (cpu_usage_snapshots_head + 1) % cpu_usage_buffer_size;
       cpu_usage_snapshots_mutex.unlock();
       usleep(1000000);
     }
@@ -141,16 +145,17 @@ namespace
   void get_cpu_snapshot(uint64_t &total_cpu_user, uint64_t &total_cpu_user_low,
     uint64_t &total_cpu_sys, uint64_t &total_cpu_idle, uint32_t seconds_before)
   {
-    if (!cpu_usage_recording_started || seconds_before > cpu_usage_buffer_size || seconds_before > cpu_usage_snapshot_count)
+    if (!cpu_usage_recording_started.load() || seconds_before > cpu_usage_buffer_size ||
+      seconds_before > static_cast<uint64_t>(cpu_usage_snapshot_count))
     {
       usleep(seconds_before * 1000000);
-      get_cpu_snapshot_from_file(&total_cpu_user, &total_cpu_user_low,
-        &total_cpu_sys, &total_cpu_idle);
+      get_cpu_snapshot_from_file(total_cpu_user, total_cpu_user_low,
+        total_cpu_sys, total_cpu_idle);
     }
     else
     {
       cpu_usage_snapshots_mutex.lock();
-      cpu_usage_snapshot snapshot = cpu_usage_snapshots[(cpu_usage_snapshots_head + seconds_before) %
+      cpu_usage_snapshot snapshot = cpu_usage_snapshots[(cpu_usage_snapshots_head - seconds_before) %
         cpu_usage_buffer_size];
       cpu_usage_snapshots_mutex.unlock();
       total_cpu_user = snapshot.total_cpu_user;
@@ -190,11 +195,11 @@ namespace system_stats
   /*! \brief Starts recording 60 second CPU usage history. */
   bool start_recording_cpu_usage()
   {
-    if (cpu_usage_recording_started)
+    if (cpu_usage_recording_started.load())
     {
       return false;
     }
-    cpu_usage_recording_started = true;
+    cpu_usage_recording_started.store(true);
     boost::thread::attributes attrs;
     cpu_usage_thread = new boost::thread(attrs, &record_cpu_usage);
     return true;
@@ -203,12 +208,12 @@ namespace system_stats
   /*! \brief Stops recording 60 second CPU usage history. */
   bool stop_recording_cpu_usage()
   {
-    if (!cpu_usage_recording_started)
+    if (!cpu_usage_recording_started.load())
     {
       return false;
     }
-    cpu_usage_recording_started = false;
-    cpu_usage_buffered = false;
+    cpu_usage_recording_started.store(false);
+    cpu_usage_buffered.store(false);
     cpu_usage_snapshot_count = 0;
     cpu_usage_snapshots_head = 0;
     boost::thread::attributes attrs;
@@ -223,7 +228,7 @@ namespace system_stats
    */
   bool is_cpu_usage_recording()
   {
-    return cpu_usage_recording_started;
+    return cpu_usage_recording_started.load();
   }
 
   /*!
@@ -232,7 +237,7 @@ namespace system_stats
    */
   bool is_cpu_usage_buffered()
   {
-    return cpu_usage_buffered;
+    return cpu_usage_buffered.load();
   }
   
   /*!
