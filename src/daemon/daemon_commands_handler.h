@@ -372,11 +372,6 @@ private:
       std::cout << "Mining already in progress" << std::endl;
       return true;
     }
-    if(!args.size())
-    {
-      std::cout << "Please, specify wallet address to mine for: start_mining <addr> [threads=1]" << std::endl;
-      return true;
-    }
 
     bool cpu_smart = false;
     bool battery_smart = false;
@@ -405,6 +400,13 @@ private:
         it++;
       }
     }
+
+    if (!args.size())
+    {
+      std::cout << "Please, specify wallet address to mine for: start_mining <addr> [threads=1]" << std::endl;
+      return true;
+    }
+
     cryptonote::account_public_address adr;
     if(!cryptonote::get_account_address_from_str(adr, m_testnet, args.front()))
     {

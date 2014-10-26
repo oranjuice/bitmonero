@@ -72,7 +72,7 @@ namespace cryptonote
     m_thread_index(0),
     m_phandler(phandler),
     m_height(0),
-    m_is_paused(false), 
+    m_pausers_count(0),
     m_threads_total(0),
     m_starter_nonce(0), 
     m_last_hr_merge_time(0),
@@ -336,41 +336,23 @@ namespace cryptonote
   //-----------------------------------------------------------------------------------------------------
   void miner::pause()
   {
-    CRITICAL_REGION_LOCAL(m_is_paused_lock);
-    if (m_is_paused)
-    {
-      LOG_PRINT_L2("Mining has already paused");
-      return;
-    }
-    if (is_mining())
-    {
-      m_is_paused = true;
-      LOG_PRINT_L2("Mining paused");
-    }
-    else
-    {
-      LOG_PRINT_L2("Mining has already stopped")
-    }
+    CRITICAL_REGION_LOCAL(m_miners_count_lock);
+    ++m_pausers_count;
+    if(m_pausers_count == 1 && is_mining())
+      LOG_PRINT_L2("MINING PAUSED");
   }
   //-----------------------------------------------------------------------------------------------------
   void miner::resume()
   {
-    CRITICAL_REGION_LOCAL(m_is_paused_lock);
-    if (!m_is_paused)
+    CRITICAL_REGION_LOCAL(m_miners_count_lock);
+    --m_pausers_count;
+    if(m_pausers_count < 0)
     {
-      LOG_PRINT_RED_L0("Mining wasn't paused. Can't resume.");
-      return;
+      m_pausers_count = 0;
+      LOG_PRINT_RED_L0("Unexpected miner::resume() called");
     }
-    if (!is_mining())
-    {
-      LOG_PRINT_L2("Mining has stopped. Can't resume.");
-    }
-    else
-    {
-      m_is_paused = false;
+    if(!m_pausers_count && is_mining())
       LOG_PRINT_L2("Mining resumed");
-    }
-
   }
   //-----------------------------------------------------------------------------------------------------
   bool miner::worker_thread()
@@ -386,7 +368,7 @@ namespace cryptonote
 	  slow_hash_allocate_state();
     while(!m_stop)
     {
-      if(m_is_paused)//anti split workaround
+      if(m_pausers_count)//anti split workaround
       {
         misc_utils::sleep_no_w(100);
         continue;
@@ -440,7 +422,7 @@ namespace cryptonote
   bool miner::smart_miner_thread()
   {
     // Start the actual mining threads
-    start(m_mine_address, m_threads_total, false, false);
+    start(m_mine_address, m_threads_total);
     while (!m_stop)
     {
       boost::this_thread::sleep(boost::posix_time::milliseconds(system_check_period));

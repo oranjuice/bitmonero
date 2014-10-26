@@ -102,8 +102,8 @@ namespace cryptonote
     uint64_t m_height;
     volatile uint32_t m_thread_index; 
     volatile uint32_t m_threads_total;
-    std::atomic<int32_t> m_is_paused;
-    epee::critical_section m_is_paused_lock;
+    std::atomic<int32_t> m_pausers_count;
+    epee::critical_section m_miners_count_lock;
 
     std::list<boost::thread> m_threads;
     boost::thread *m_smart_controller_thread;
