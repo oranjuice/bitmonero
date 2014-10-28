@@ -108,12 +108,12 @@ namespace
     uint64_t total_cpu_idle;
   };
 
-  std::atomic<bool> cpu_usage_recording_started(false);
-  std::atomic<bool> cpu_usage_buffered(false);
+  std::atomic<bool> cpu_usage_recording_started(false); // Whether buffering has started
+  std::atomic<bool> cpu_usage_buffered(false); // Whether the entire buffer is full
   boost::mutex cpu_usage_snapshots_mutex;
-  cpu_usage_snapshot cpu_usage_snapshots[cpu_usage_buffer_size];
-  int cpu_usage_snapshots_head = 0;
-  int cpu_usage_snapshot_count = 0;
+  cpu_usage_snapshot cpu_usage_snapshots[cpu_usage_buffer_size]; // A circular queue
+  int cpu_usage_snapshots_head = 0; // index of head of queue
+  int cpu_usage_snapshot_count = 0; // Number of snapshots read so far
   boost::thread *cpu_usage_thread;
 
   /*! \brief Records CPU usage regularly */
@@ -136,6 +136,8 @@ namespace
       cpu_usage_snapshots[cpu_usage_snapshots_head] = snapshot;
       cpu_usage_snapshots_head = (cpu_usage_snapshots_head + 1) % cpu_usage_buffer_size;
       cpu_usage_snapshots_mutex.unlock();
+      // Wait for a second
+      // CANNOT change this duration at the moment.
       usleep(1000000);
     }
   }

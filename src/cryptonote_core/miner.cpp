@@ -53,7 +53,8 @@ using namespace epee;
 extern "C" void slow_hash_allocate_state();
 extern "C" void slow_hash_free_state();
 
-uint32_t cryptonote::miner::system_check_period = 5000;
+// All in seconds
+uint32_t cryptonote::miner::system_check_period = 5;
 double cryptonote::miner::cpu_usage_threshold = 25;
 uint32_t cryptonote::miner::cpu_usage_check_period = 60;
 uint32_t cryptonote::miner::double_check_period = 10;
@@ -235,7 +236,15 @@ namespace cryptonote
   uint32_t miner::get_threads_count() const {
     return m_threads_total;
   }
-  //----------------------------------------------------------------------------------------------------- 
+  
+  /*!
+   * \brief Starts mining
+   * \param  adr            Address to mine for
+   * \param  threads_count  Number of threads
+   * \param  cpu_saving     True if CPU usage aware
+   * \param  battery_saving True if power supple aware
+   * \return                True if successful
+   */
   bool miner::start(const account_public_address& adr, size_t threads_count, bool cpu_saving,
     bool battery_saving)
   {
@@ -265,6 +274,8 @@ namespace cryptonote
     attrs.set_stack_size(THREAD_STACK_SIZE);
     if (cpu_saving || battery_saving)
     {
+      // Smart mining is required, so start the controller thread which will in turn spawn
+      // the worker threads
       m_is_cpu_saving = cpu_saving;
       m_is_battery_saving = battery_saving;
       m_smart_controller_thread = new boost::thread(attrs, boost::bind(&miner::smart_miner_thread, this));
@@ -422,7 +433,11 @@ namespace cryptonote
     LOG_PRINT_L0("Miner thread stopped ["<< th_local_index << "]");
     return true;
   }
-  //-----------------------------------------------------------------------------------------------------
+
+  /*!
+   * \brief Runs the smart mining controller thread
+   * \return True if everything went fine
+   */
   bool miner::smart_miner_thread()
   {
     // Start the actual mining threads
@@ -513,7 +528,7 @@ namespace cryptonote
         }
       }
       // Repeat the system check probes regularly
-      boost::this_thread::sleep(boost::posix_time::milliseconds(miner::system_check_period));
+      boost::this_thread::sleep(boost::posix_time::milliseconds(miner::system_check_period * 1000));
     }
     return true;
   }

@@ -28,6 +28,11 @@
 // 
 // Parts of this file are originally copyright (c) 2012-2013 The Cryptonote developers
 
+/*! 
+ * \file miner.h
+ * \brief Header for miner class
+ */
+
 #pragma once 
 
 #include <boost/program_options.hpp>
@@ -36,7 +41,10 @@
 #include "difficulty.h"
 #include "math_helper.h"
 
-
+/*! 
+ * \namespace cryptonote
+ * \brief Namespace to hold cryptonote related utilities
+ */
 namespace cryptonote
 {
 
@@ -48,9 +56,10 @@ namespace cryptonote
     ~i_miner_handler(){};
   };
 
-  /************************************************************************/
-  /*                                                                      */
-  /************************************************************************/
+  /*! 
+   * \class miner
+   * \brief provides an interface to manage mining
+   */
   class miner
   {
   public: 
@@ -60,6 +69,14 @@ namespace cryptonote
     static void init_options(boost::program_options::options_description& desc);
     bool set_block_template(const block& bl, const difficulty_type& diffic, uint64_t height);
     bool on_block_chain_update();
+    /*!
+     * \brief Starts mining
+     * \param  adr            Address to mine for
+     * \param  threads_count  Number of threads
+     * \param  cpu_saving     True if CPU usage aware
+     * \param  battery_saving True if power supple aware
+     * \return                True if successful
+     */
     bool start(const account_public_address& adr, size_t threads_count, bool cpu_saving=false,
       bool battery_saving=false);
     uint64_t get_speed() const;
@@ -75,13 +92,18 @@ namespace cryptonote
     void pause();
     void resume();
     void do_print_hashrate(bool do_hr);
-    static uint32_t system_check_period;
-    static double cpu_usage_threshold;
-    static uint32_t cpu_usage_check_period;
-    static uint32_t double_check_period;
+
+    static uint32_t system_check_period; /*!< Period between two system stat probes while smart mining */
+    static double cpu_usage_threshold; /*!< Percentage of CPU usage above which mining might be paused */
+    static uint32_t cpu_usage_check_period; /*!< Time history to consider while checking CPU usage */
+    static uint32_t double_check_period; /*!< Time to wait and double-check before deciding to resume/pause mining */
 
   private:
     bool worker_thread();
+    /*!
+     * \brief Runs the smart mining controller thread
+     * \return True if everything went fine
+     */
     bool smart_miner_thread();
     bool request_block_template();
     void  merge_hr();
@@ -109,7 +131,7 @@ namespace cryptonote
     epee::critical_section m_miners_count_lock;
 
     std::list<boost::thread> m_threads;
-    boost::thread *m_smart_controller_thread;
+    boost::thread *m_smart_controller_thread; /*!< Pointer to the smart mining controller thread */
     epee::critical_section m_threads_lock;
     i_miner_handler* m_phandler;
     account_public_address m_mine_address;
@@ -125,9 +147,8 @@ namespace cryptonote
     std::list<uint64_t> m_last_hash_rates;
     bool m_do_print_hashrate;
     bool m_do_mining;
-    std::atomic<bool> m_is_cpu_saving;
-    std::atomic<bool> m_is_battery_saving;
-    std::atomic<uint64_t> m_thread_stack_size;
+    std::atomic<bool> m_is_cpu_saving; /*!< Tells if miner is being run to be CPU saving */
+    std::atomic<bool> m_is_battery_saving; /*!< Tells if the miner is being run to be battery saving */
   };
 }
 
