@@ -558,6 +558,54 @@ namespace system_stats
     }
     return percent;
   }
+
+  /*! \brief Starts recording 60 second CPU usage history. */
+  bool start_recording_cpu_usage()
+  {
+    if (cpu_usage_recording_started.load())
+    {
+      return false;
+    }
+    cpu_usage_recording_started.store(true);
+    boost::thread::attributes attrs;
+    cpu_usage_thread = new boost::thread(attrs, &record_cpu_usage);
+    return true;
+  }
+
+  /*! \brief Stops recording 60 second CPU usage history. */
+  bool stop_recording_cpu_usage()
+  {
+    if (!cpu_usage_recording_started.load())
+    {
+      return false;
+    }
+    cpu_usage_recording_started.store(false);
+    cpu_usage_buffered.store(false);
+    cpu_usage_snapshot_count = 0;
+    cpu_usage_snapshots_head = 0;
+    boost::thread::attributes attrs;
+    cpu_usage_thread->join();
+    delete cpu_usage_thread;
+    return true;
+  }
+
+  /*!
+   * \brief Tells if CPU usage is being recorded
+   * \return True if being recorded, false otherwise
+   */
+  bool is_cpu_usage_recording()
+  {
+    return cpu_usage_recording_started.load();
+  }
+
+  /*!
+   * \brief Tells if CPU usage has been completely buffered
+   * \return True if completely buffered, false otherwise
+   */
+  bool is_cpu_usage_buffered()
+  {
+    return cpu_usage_buffered.load();
+  }
 };
 
 #endif
