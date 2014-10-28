@@ -53,7 +53,10 @@ using namespace epee;
 extern "C" void slow_hash_allocate_state();
 extern "C" void slow_hash_free_state();
 
-uint64_t cryptonote::miner::system_check_period = 5000;
+uint32_t cryptonote::miner::system_check_period = 5000;
+double cryptonote::miner::cpu_usage_threshold = 25;
+uint32_t cryptonote::miner::cpu_usage_check_period = 60;
+uint32_t cryptonote::miner::double_check_period = 10;
 
 namespace cryptonote
 {
@@ -424,10 +427,93 @@ namespace cryptonote
   {
     // Start the actual mining threads
     start(m_mine_address, m_threads_total);
+    bool is_mining_paused = false;
+    bool battery_trigger = false; // When a battery state change triggers a mining state change
+    bool cpu_trigger = false; // When a CPU state change triggers a mining state change
+    long cpu_trigger_timestamp = 0; // When the CPU trigger happened
+    long battery_trigger_timestamp = 0; // When the battery trigger happened
+
     while (!m_stop)
     {
-      std::cout << "hi: " << system_stats::get_cpu_usage(15) << std::endl;
-      boost::this_thread::sleep(boost::posix_time::milliseconds(system_check_period));
+      if (!is_mining_paused)
+      {
+        // We are trying to look for situations that will need to pause the mining
+        if (cpu_trigger)
+        {
+          // CPU had shown signs of high usage.
+          // We must confirm before we decide to pause mining.
+          long timestamp_now = boost::posix_time::time_duration(boost::posix_time::microsec_clock::
+            local_time().time_of_day()).total_milliseconds();
+
+          // Double check only after double_check_period seconds after the trigger
+          if (timestamp_now - cpu_trigger_timestamp > miner::double_check_period * 1000)
+          {
+            double cpu_usage = system_stats::get_cpu_usage(miner::double_check_period);
+            if (cpu_usage > miner::cpu_usage_threshold)
+            {
+              // CPU usage is still bad. Time to pause mining.
+              cpu_trigger = false;
+              battery_trigger = false;
+              is_mining_paused = true;
+              LOG_PRINT_L0("Pausing miner due to high CPU usage");
+              pause();
+            }
+          }
+        }
+        else if (system_stats::is_cpu_usage_buffered())
+        {
+          double cpu_usage = system_stats::get_cpu_usage(miner::cpu_usage_check_period);
+          if (cpu_usage > miner::cpu_usage_threshold)
+          {
+            // High CPU usage over the past `cpu_usage_check_period` seconds. Must double-check after
+            // double_check_period seconds before deciding to pause mining.
+            cpu_trigger = true;
+            cpu_trigger_timestamp = boost::posix_time::time_duration(boost::posix_time::microsec_clock::
+              local_time().time_of_day()).total_milliseconds();
+          }
+        }
+      }
+      else
+      {
+        // We are trying to look for situations that will need to resume the mining
+        if (cpu_trigger && battery_trigger)
+        {
+          // Both CPU and battery had shown positive signs.
+          // We must double check before we decide to resume mining.
+          long timestamp_now = boost::posix_time::time_duration(boost::posix_time::microsec_clock::
+            local_time().time_of_day()).total_milliseconds();
+
+          // Double check only after double_check_period seconds after the triggers
+          if (timestamp_now - cpu_trigger_timestamp > miner::double_check_period * 1000)
+          {
+            double cpu_usage = system_stats::get_cpu_usage(miner::double_check_period);
+            if (cpu_usage <= miner::cpu_usage_threshold)
+            {
+              cpu_trigger = false;
+              battery_trigger = false;
+              is_mining_paused = false;
+              LOG_PRINT_L0("Resuming miner");
+              resume();
+            }
+          }
+        }
+        else
+        {
+          double cpu_usage = system_stats::get_cpu_usage(miner::cpu_usage_check_period);
+          if (cpu_usage <= miner::cpu_usage_threshold)
+          {
+            // CPU usage is high.
+            // Set a trigger and check again later before we decide to resume mining.
+            cpu_trigger = true;
+            battery_trigger = true;
+            cpu_trigger_timestamp = battery_trigger_timestamp =
+              boost::posix_time::time_duration(boost::posix_time::microsec_clock::
+                local_time().time_of_day()).total_milliseconds();
+          }
+        }
+      }
+      // Repeat the system check probes regularly
+      boost::this_thread::sleep(boost::posix_time::milliseconds(miner::system_check_period));
     }
     return true;
   }

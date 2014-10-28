@@ -75,7 +75,10 @@ namespace cryptonote
     void pause();
     void resume();
     void do_print_hashrate(bool do_hr);
-    static uint64_t system_check_period;
+    static uint32_t system_check_period;
+    static double cpu_usage_threshold;
+    static uint32_t cpu_usage_check_period;
+    static uint32_t double_check_period;
 
   private:
     bool worker_thread();

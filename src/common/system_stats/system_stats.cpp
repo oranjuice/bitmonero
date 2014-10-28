@@ -130,7 +130,6 @@ namespace
       {
         cpu_usage_buffered.store(true);
       }
-      std::cout << "snapshot: " << cpu_usage_snapshot_count << std::endl;
       cpu_usage_snapshot snapshot;
       get_cpu_snapshot_from_file(snapshot.total_cpu_user, snapshot.total_cpu_user_low,
         snapshot.total_cpu_sys, snapshot.total_cpu_idle);
