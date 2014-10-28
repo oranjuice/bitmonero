@@ -372,17 +372,19 @@ namespace system_stats
 #include <string>
 #include <unistd.h>
 #include <cinttypes>
+#include <boost/thread.hpp>
+#include <boost/thread/mutex.hpp>
+#include <atomic>
 
-/*!
- * \var const int wait_duration
- * \brief A (static) constant that tells the wait duration between two CPU snapshots for measuring CPU usage.
- */
-const int wait_duration = 1000000;
+#include <iostream>
+
+/*! \brief History size (in seconds) of the CPU usage cache buffer */
+const int cpu_usage_buffer_size = 60;
 
 namespace
 {
-  /* Gets a snapshot of the number of CPU ticks (idle and total) at this point */
-  void get_cpu_snapshot(uint64_t &idle_ticks, uint64_t &total_ticks)
+  /* Gets a snapshot of the number of CPU ticks (idle and total) at this point (not from cache) */
+  void get_cpu_snapshot_from_file(uint64_t &idle_ticks, uint64_t &total_ticks)
   {
     mach_port_t mach_port = mach_host_self();
     mach_msg_type_number_t count = HOST_CPU_LOAD_INFO_COUNT;
@@ -414,6 +416,65 @@ namespace
       throw std::runtime_error("Rare CPU time integer overflow occured. Try again.");
     }
     return 100 * (1.0 - (static_cast<double>(idle_ticks_diff) / total_ticks_diff));
+  }
+
+  /* Structure that represents a CPU snapshot */
+  struct cpu_usage_snapshot {
+    uint64_t idle_ticks;
+    uint64_t total_ticks;
+  };
+
+  std::atomic<bool> cpu_usage_recording_started(false); // Whether buffering has started
+  std::atomic<bool> cpu_usage_buffered(false); // Whether the entire buffer is full
+  boost::mutex cpu_usage_snapshots_mutex;
+  cpu_usage_snapshot cpu_usage_snapshots[cpu_usage_buffer_size]; // A circular queue
+  int cpu_usage_snapshots_head = 0; // index of head of queue
+  int cpu_usage_snapshot_count = 0; // Number of snapshots read so far
+  boost::thread *cpu_usage_thread;
+
+  /*! \brief Records CPU usage regularly */
+  void record_cpu_usage()
+  {
+    while (cpu_usage_recording_started.load())
+    {
+      cpu_usage_snapshots_mutex.lock();
+      if (cpu_usage_snapshot_count < cpu_usage_buffer_size) 
+      {
+        cpu_usage_snapshot_count++;
+      }
+      else
+      {
+        cpu_usage_buffered.store(true);
+      }
+      cpu_usage_snapshot snapshot;
+      get_cpu_snapshot_from_file(snapshot.idle_ticks, snapshot.total_ticks);
+      cpu_usage_snapshots[cpu_usage_snapshots_head] = snapshot;
+      cpu_usage_snapshots_head = (cpu_usage_snapshots_head + 1) % cpu_usage_buffer_size;
+      cpu_usage_snapshots_mutex.unlock();
+      // Wait for a second
+      // CANNOT change this duration at the moment.
+      usleep(1000000);
+    }
+  }
+
+  /*! \brief Gets a snapshot of CPU times seconds_before seconds ago */
+  void get_cpu_snapshot(uint64_t &idle_ticks, uint64_t &total_ticks, uint32_t seconds_before)
+  {
+    if (!cpu_usage_recording_started.load() || seconds_before > cpu_usage_buffer_size ||
+      seconds_before > static_cast<uint64_t>(cpu_usage_snapshot_count))
+    {
+      usleep(seconds_before * 1000000);
+      get_cpu_snapshot_from_file(idle_ticks, total_ticks);
+    }
+    else
+    {
+      cpu_usage_snapshots_mutex.lock();
+      cpu_usage_snapshot snapshot = cpu_usage_snapshots[(cpu_usage_snapshots_head - seconds_before) %
+        cpu_usage_buffer_size];
+      cpu_usage_snapshots_mutex.unlock();
+      idle_ticks = snapshot.idle_ticks;
+      total_ticks = snapshot.total_ticks;
+    }
   }
 };
 
@@ -478,10 +539,9 @@ namespace system_stats
 
     try
     {
-      // Get two CPU snapshots separated by some time.
-      get_cpu_snapshot(idle_ticks_1, total_ticks_1);
-      usleep(wait_duration);
-      get_cpu_snapshot(idle_ticks_2, total_ticks_2);
+      // Get two CPU snapshots separated by wait_duration.
+      get_cpu_snapshot(idle_ticks_1, total_ticks_1, 0);
+      get_cpu_snapshot(idle_ticks_2, total_ticks_2, wait_duration);
     }
     catch (std::runtime_error &e)
     {
