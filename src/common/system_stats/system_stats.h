@@ -80,6 +80,12 @@ namespace system_stats
    * \return               CPU usage percentage
    */
   double get_cpu_usage(uint64_t wait_duration);
+
+  /*!
+   * \brief Tells if battery is charging
+   * \return True if battery is charging
+   */
+  bool is_battery_charging();
 };
 
 #endif

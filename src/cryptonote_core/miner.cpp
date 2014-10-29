@@ -450,6 +450,7 @@ namespace cryptonote
 
     while (!m_stop)
     {
+      std::cout << "battery charging: " << system_stats::is_battery_charging() << std::endl;
       if (!is_mining_paused)
       {
         // We are trying to look for situations that will need to pause the mining

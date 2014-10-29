@@ -280,6 +280,26 @@ namespace system_stats
     }
     return percent;
   }
+
+  /*!
+   * \brief Tells if battery is charging
+   * \return True if battery is charging
+   */
+  bool is_battery_charging()
+  {
+    FILE *file = fopen("/sys/class/power_supply/BAT0/status", "r");
+    char status[50];
+    if (!fgets(status, 49, file))
+    {
+      throw std::runtime_error("Couldn't read /proc/stat");
+    }
+    fclose(file);
+    if (strcmp(status, "Discharging") == 0)
+    {
+      return false;
+    }
+    return true;
+  }
 };
 
 #elif _WIN32
