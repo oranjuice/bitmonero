@@ -101,7 +101,7 @@ namespace cryptonote
   private:
     bool worker_thread();
     /*!
-     * \brief Runs the smart mining controller thread
+     * \brief Runs in the smart mining controller thread
      * \return True if everything went fine
      */
     bool smart_miner_thread();

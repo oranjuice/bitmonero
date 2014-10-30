@@ -248,7 +248,7 @@ namespace cryptonote
   bool miner::start(const account_public_address& adr, size_t threads_count, bool cpu_saving,
     bool battery_saving)
   {
-    if (is_mining() && !m_is_cpu_saving && !!m_is_battery_saving)
+    if (is_mining() && !cpu_saving && !battery_saving)
     {
       LOG_ERROR("Mining already in progress");
       return false;
@@ -267,9 +267,6 @@ namespace cryptonote
     if (!m_template_no)
       request_block_template(); // let's update block template
 
-    boost::interprocess::ipcdetail::atomic_write32(&m_stop, 0);
-    boost::interprocess::ipcdetail::atomic_write32(&m_thread_index, 0);
-
     boost::thread::attributes attrs;
     attrs.set_stack_size(THREAD_STACK_SIZE);
     if (cpu_saving || battery_saving)
@@ -282,6 +279,9 @@ namespace cryptonote
       LOG_PRINT_L0("Smart mining has started with " << threads_count << " threads, good luck!" )
       return true;
     }
+    boost::interprocess::ipcdetail::atomic_write32(&m_stop, 0);
+    boost::interprocess::ipcdetail::atomic_write32(&m_thread_index, 0);
+
     for (size_t i = 0; i != threads_count; i++)
     {
       m_threads.push_back(boost::thread(attrs, boost::bind(&miner::worker_thread, this)));
@@ -435,7 +435,7 @@ namespace cryptonote
   }
 
   /*!
-   * \brief Runs the smart mining controller thread
+   * \brief Runs in the smart mining controller thread
    * \return True if everything went fine
    */
   bool miner::smart_miner_thread()
@@ -450,14 +450,13 @@ namespace cryptonote
 
     while (!m_stop)
     {
-      std::cout << "battery charging: " << system_stats::is_battery_charging() << std::endl;
       if (!is_mining_paused)
       {
-        // We are trying to look for situations that will need to pause the mining
+        // Trying to look for situations that will need to pause the mining
         if (cpu_trigger)
         {
           // CPU had shown signs of high usage.
-          // We must confirm before we decide to pause mining.
+          // Confirm before we decide to pause mining.
           long timestamp_now = boost::posix_time::time_duration(boost::posix_time::microsec_clock::
             local_time().time_of_day()).total_milliseconds();
 
@@ -476,7 +475,7 @@ namespace cryptonote
             }
           }
         }
-        else if (system_stats::is_cpu_usage_buffered())
+        else if (m_is_cpu_saving && system_stats::is_cpu_usage_buffered())
         {
           double cpu_usage = system_stats::get_cpu_usage(miner::cpu_usage_check_period);
           if (cpu_usage > miner::cpu_usage_threshold)
@@ -488,14 +487,46 @@ namespace cryptonote
               local_time().time_of_day()).total_milliseconds();
           }
         }
+        if (battery_trigger)
+        {
+          // Battery wasn't charging a while ago.
+          // Confirm before we decide to pause mining.
+          long timestamp_now = boost::posix_time::time_duration(boost::posix_time::microsec_clock::
+            local_time().time_of_day()).total_milliseconds();
+
+          // Double check only after double_check_period seconds after the trigger
+          if (timestamp_now - battery_trigger_timestamp > miner::double_check_period * 1000)
+          {
+            if (!system_stats::is_battery_charging())
+            {
+              // Battery is still not charging. Time to pause mining.
+              battery_trigger = false;
+              cpu_trigger = false;
+              is_mining_paused = true;
+              LOG_PRINT_L0("Pausing miner because battery is discharging");
+              pause();
+            }
+          }
+        }
+        else if (m_is_battery_saving)
+        {
+          if (!system_stats::is_battery_charging())
+          {
+            // Battery isn't charging. Recheck after sometime before deciding to
+            // pause mining
+            battery_trigger = true;
+            battery_trigger_timestamp = boost::posix_time::time_duration(boost::posix_time::microsec_clock::
+              local_time().time_of_day()).total_milliseconds();
+          }
+        }
       }
       else
       {
-        // We are trying to look for situations that will need to resume the mining
+        // Trying to look for situations that will need to resume the mining
         if (cpu_trigger && battery_trigger)
         {
           // Both CPU and battery had shown positive signs.
-          // We must double check before we decide to resume mining.
+          // Double check before we decide to resume mining.
           long timestamp_now = boost::posix_time::time_duration(boost::posix_time::microsec_clock::
             local_time().time_of_day()).total_milliseconds();
 
@@ -503,7 +534,7 @@ namespace cryptonote
           if (timestamp_now - cpu_trigger_timestamp > miner::double_check_period * 1000)
           {
             double cpu_usage = system_stats::get_cpu_usage(miner::double_check_period);
-            if (cpu_usage <= miner::cpu_usage_threshold)
+            if (cpu_usage <= miner::cpu_usage_threshold && system_stats::is_battery_charging())
             {
               cpu_trigger = false;
               battery_trigger = false;
@@ -516,9 +547,9 @@ namespace cryptonote
         else
         {
           double cpu_usage = system_stats::get_cpu_usage(miner::cpu_usage_check_period);
-          if (cpu_usage <= miner::cpu_usage_threshold)
+          if (cpu_usage <= miner::cpu_usage_threshold  && system_stats::is_battery_charging())
           {
-            // CPU usage is high.
+            // CPU usage is low and batter is charging.
             // Set a trigger and check again later before we decide to resume mining.
             cpu_trigger = true;
             battery_trigger = true;

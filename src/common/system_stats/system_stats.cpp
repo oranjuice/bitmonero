@@ -294,11 +294,15 @@ namespace system_stats
       throw std::runtime_error("Couldn't read /proc/stat");
     }
     fclose(file);
-    if (strcmp(status, "Discharging") == 0)
+    if (strlen(status) > 0 && status[strlen(status) - 1] == '\n')
     {
-      return false;
+      status[strlen(status) - 1] = '\0';
     }
-    return true;
+    if (strcmp(status, "Charging") == 0)
+    {
+      return true;
+    }
+    return false;
   }
 };
 
