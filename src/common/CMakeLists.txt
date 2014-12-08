@@ -30,7 +30,8 @@ set(common_sources
   base58.cpp
   command_line.cpp
   dns_utils.cpp
-  util.cpp)
+  util.cpp
+  system_stats/system_stats.cpp)
 
 set(common_headers)
 
