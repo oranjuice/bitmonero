@@ -36,6 +36,7 @@
  * - Total system memory
  * - Used system memory
  * - CPU usage
+ * - Battery stats
  * It works on Linux, Windows and Mac OS.
  */
 

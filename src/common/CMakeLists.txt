@@ -26,12 +26,18 @@
 # STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF
 # THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+if(APPLE)
+  set(SYSTEM_STATS_SRC system_stats/system_stats.mm)
+else()
+  set(SYSTEM_STATS_SRC system_stats/system_stats.cpp)
+endif()
+
 set(common_sources
   base58.cpp
   command_line.cpp
   dns_utils.cpp
   util.cpp
-  system_stats/system_stats.cpp)
+  ${SYSTEM_STATS_SRC})
 
 set(common_headers)
 
@@ -52,14 +58,29 @@ bitmonero_add_library(common
   ${common_sources}
   ${common_headers}
   ${common_private_headers})
-target_link_libraries(common
-  LINK_PRIVATE
-    crypto
-    ${UNBOUND_LIBRARY}
-    ${Boost_DATE_TIME_LIBRARY}
-    ${Boost_FILESYSTEM_LIBRARY}
-    ${Boost_SYSTEM_LIBRARY}
-    ${EXTRA_LIBRARIES})
+
+if(APPLE)
+  find_library(FRAMEWORK_IOKIT IOKit)
+  target_link_libraries(common
+    LINK_PRIVATE
+      crypto
+      ${UNBOUND_LIBRARY}
+      ${Boost_DATE_TIME_LIBRARY}
+      ${Boost_FILESYSTEM_LIBRARY}
+      ${Boost_SYSTEM_LIBRARY}
+      ${EXTRA_LIBRARIES}
+      objc
+      ${FRAMEWORK_IOKIT})
+else()
+  target_link_libraries(common
+    LINK_PRIVATE
+      crypto
+      ${UNBOUND_LIBRARY}
+      ${Boost_DATE_TIME_LIBRARY}
+      ${Boost_FILESYSTEM_LIBRARY}
+      ${Boost_SYSTEM_LIBRARY}
+      ${EXTRA_LIBRARIES})
+endif()
 
 #bitmonero_install_headers(common
 #  ${common_headers})
