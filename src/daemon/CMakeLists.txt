@@ -71,6 +71,7 @@ target_link_libraries(daemon
     ${CMAKE_THREAD_LIBS_INIT}
     ${UPNP_LIBRARIES}
     ${EXTRA_LIBRARIES})
+    ${SIGAR_LIBRARY})
 add_dependencies(daemon
   version)
 set_property(TARGET daemon

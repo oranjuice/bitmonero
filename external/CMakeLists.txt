@@ -97,3 +97,19 @@ else()
     die("Found libunbound includes, but could not find libunbound library. Please make sure you have installed libunbound or libunbound-dev or the equivalent")
   endif()
 endif()
+
+add_subdirectory(sigar)
+
+set(SIGAR_NAMES sigar)
+
+find_library(
+  SIGAR_LIBRARY
+  NAMES ${SIGAR_NAMES}
+  PATHS sigar/build-src
+)
+
+if(NOT SIGAR_LIBRARY)
+  die("Sigar library wasn't found")
+endif()
+
+set(SIGAR_LIBRARY ${SIGAR_LIBRARY} PARENT_SCOPE)
