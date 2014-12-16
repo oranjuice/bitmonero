@@ -70,8 +70,7 @@ target_link_libraries(daemon
     ${Boost_THREAD_LIBRARY}
     ${CMAKE_THREAD_LIBS_INIT}
     ${UPNP_LIBRARIES}
-    ${EXTRA_LIBRARIES}
-    ${SIGAR_LIBRARIES})
+    ${EXTRA_LIBRARIES})
 
 add_dependencies(daemon
   version)

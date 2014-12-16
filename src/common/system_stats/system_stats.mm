@@ -58,8 +58,8 @@
 #import <Cocoa/Cocoa.h>
 #import <IOKit/ps/IOPowerSources.h>
 #import <IOKit/ps/IOPSKeys.h>
-#include "sigar.h"
 extern "C" {
+#include "sigar.h"
 #include "sigar_format.h"
 }
 

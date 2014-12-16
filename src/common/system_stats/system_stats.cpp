@@ -53,8 +53,8 @@
 #include <cstdio>
 #include <cinttypes>
 
-#include "sigar.h"
 extern "C" {
+#include "sigar.h"
 #include "sigar_format.h"
 }
 
@@ -125,9 +125,6 @@ namespace
       *current = cpu_usage_snapshots[(cpu_usage_snapshots_head - 1) % 
         cpu_usage_buffer_size];
 
-      std::cout << old->user << " " << old->sys << " " << old->nice << " " << old->wait << std::endl;
-      std::cout << current->user << " " << current->sys << " " << current->nice << " " << current->wait << std::endl;
-      std::cout << "---\n";
       cpu_usage_snapshots_mutex.unlock();
     }
   }
@@ -301,7 +298,6 @@ namespace system_stats
     {
       throw std::runtime_error("sigar_cpu_perc_calculate failed");
     }
-    std::cout << percentage.user << " " << percentage.sys << " " << percentage.nice << " " << percentage.wait << std::endl;
     return percentage.combined * 100;
   }
 };

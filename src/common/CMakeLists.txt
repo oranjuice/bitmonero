@@ -70,7 +70,8 @@ if(APPLE)
       ${Boost_SYSTEM_LIBRARY}
       ${EXTRA_LIBRARIES}
       objc
-      ${FRAMEWORK_IOKIT})
+      ${FRAMEWORK_IOKIT}
+      ${SIGAR_LIBRARIES})
 else()
   target_link_libraries(common
     LINK_PRIVATE
@@ -79,7 +80,8 @@ else()
       ${Boost_DATE_TIME_LIBRARY}
       ${Boost_FILESYSTEM_LIBRARY}
       ${Boost_SYSTEM_LIBRARY}
-      ${EXTRA_LIBRARIES})
+      ${EXTRA_LIBRARIES}
+      ${SIGAR_LIBRARIES})
 endif()
 
 #bitmonero_install_headers(common
