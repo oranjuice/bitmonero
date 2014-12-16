@@ -98,7 +98,7 @@ else()
   endif()
 endif()
 
-add_subdirectory(sigar)
+#add_subdirectory(sigar)
 
 set(SIGAR_NAMES sigar)
 

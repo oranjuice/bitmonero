@@ -445,8 +445,8 @@ namespace cryptonote
     bool is_mining_paused = false;
     bool battery_trigger = false; // When a battery state change triggers a mining state change
     bool cpu_trigger = false; // When a CPU state change triggers a mining state change
-    long cpu_trigger_timestamp = 0; // When the CPU trigger happened
-    long battery_trigger_timestamp = 0; // When the battery trigger happened
+    unsigned long cpu_trigger_timestamp = 0; // When the CPU trigger happened
+    unsigned long battery_trigger_timestamp = 0; // When the battery trigger happened
 
     while (!m_stop)
     {
@@ -457,7 +457,7 @@ namespace cryptonote
         {
           // CPU had shown signs of high usage.
           // Confirm before we decide to pause mining.
-          long timestamp_now = boost::posix_time::time_duration(boost::posix_time::microsec_clock::
+          unsigned long timestamp_now = boost::posix_time::time_duration(boost::posix_time::microsec_clock::
             local_time().time_of_day()).total_milliseconds();
 
           // Double check only after double_check_period seconds after the trigger
@@ -491,7 +491,7 @@ namespace cryptonote
         {
           // Battery wasn't charging a while ago.
           // Confirm before we decide to pause mining.
-          long timestamp_now = boost::posix_time::time_duration(boost::posix_time::microsec_clock::
+          unsigned long timestamp_now = boost::posix_time::time_duration(boost::posix_time::microsec_clock::
             local_time().time_of_day()).total_milliseconds();
 
           // Double check only after double_check_period seconds after the trigger
@@ -527,7 +527,7 @@ namespace cryptonote
         {
           // Both CPU and battery had shown positive signs.
           // Double check before we decide to resume mining.
-          long timestamp_now = boost::posix_time::time_duration(boost::posix_time::microsec_clock::
+          unsigned long timestamp_now = boost::posix_time::time_duration(boost::posix_time::microsec_clock::
             local_time().time_of_day()).total_milliseconds();
 
           // Double check only after double_check_period seconds after the triggers

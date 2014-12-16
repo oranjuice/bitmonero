@@ -327,17 +327,19 @@ namespace system_stats
   /*! \brief Returns total system memory (RAM) in bytes. */
   uint64_t get_total_system_memory()
   {
-    DWORDLONG w_total_mem = memInfo.ullTotalPhys;
+    /*DWORDLONG w_total_mem = memInfo.ullTotalPhys;
     uint64_t total_mem = static_cast<uint64_t>(w_total_mem);
-    return total_mem;
+    return total_mem;*/
+    return 0;
   }
 
   /*! \brief Returns currently used system memory (used RAM) in bytes. */
   uint64_t get_used_system_memory()
   {
-    DWORDLONG w_used_mem = memInfo.ullTotalPhys - memInfo.ullAvailPhys;
+    /*DWORDLONG w_used_mem = memInfo.ullTotalPhys - memInfo.ullAvailPhys;
     uint64_t used_mem = static_cast<uint64_t>(w_used_mem);
-    return used_mem;
+    return used_mem;*/
+    return 0;
   }
 
   /*!
@@ -347,7 +349,7 @@ namespace system_stats
    */
   double get_cpu_usage(uint64_t wait_duration)
   {
-    HQUERY h_query = NULL;
+    /*HQUERY h_query = NULL;
     HCOUNTER h_counter = NULL;
     DWORD dw_format = PDH_FMT_DOUBLE;
     PDH_STATUS status = PdhOpenQuery(NULL, NULL, &h_query);
@@ -379,7 +381,53 @@ namespace system_stats
         failed with error code: " + std::to_string(status);
       throw std::runtime_error(msg);
     }
-    return item_buffer.doubleValue;
+    return item_buffer.doubleValue;*/
+    return 1.0;
+  }
+
+  /*!
+   * \brief Tells if battery is charging
+   * \return True if battery is charging
+   */
+  bool is_battery_charging()
+  {
+    LPSYSTEM_POWER_STATUS power_status = new SYSTEM_POWER_STATUS;
+    GetSystemPowerStatus(power_status);
+    if (power_status->ACLineStatus == 0)
+    {
+      return false;
+    }
+    return true;
+  }
+
+  /*! \brief Starts recording 60 second CPU usage history. */
+  bool start_recording_cpu_usage()
+  {
+    return true;
+  }
+
+  /*! \brief Stops recording 60 second CPU usage history. */
+  bool stop_recording_cpu_usage()
+  {
+    return true;
+  }
+
+  /*!
+   * \brief Tells if CPU usage is being recorded
+   * @return True if being recorded, false otherwise
+   */
+  bool is_cpu_usage_recording()
+  {
+    return false;
+  }
+
+  /*!
+   * \brief Tells if CPU usage has been completely buffered
+   * @return True if completely buffered, false otherwise
+   */
+  bool is_cpu_usage_buffered()
+  {
+    return false;
   }
 };
 
