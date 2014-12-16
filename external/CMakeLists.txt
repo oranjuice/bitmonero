@@ -112,4 +112,4 @@ if(NOT SIGAR_LIBRARY)
   die("Sigar library wasn't found")
 endif()
 
-set(SIGAR_LIBRARY ${SIGAR_LIBRARY} PARENT_SCOPE)
+set(SIGAR_LIBRARIES ${SIGAR_LIBRARY} PARENT_SCOPE)

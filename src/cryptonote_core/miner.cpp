@@ -452,7 +452,7 @@ namespace cryptonote
     {
       if (!is_mining_paused)
       {
-        // Trying to look for situations that will need to pause the mining
+        // Trying to look for situations that will lead to pause the mining
         if (cpu_trigger)
         {
           // CPU had shown signs of high usage.
@@ -522,7 +522,7 @@ namespace cryptonote
       }
       else
       {
-        // Trying to look for situations that will need to resume the mining
+        // Trying to look for situations that will lead to resume the mining
         if (cpu_trigger && battery_trigger)
         {
           // Both CPU and battery had shown positive signs.

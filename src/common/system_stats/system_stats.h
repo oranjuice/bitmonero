@@ -57,6 +57,15 @@ namespace system_stats
   /*! \brief Returns currently used system memory (used RAM) in bytes. */
   uint64_t get_used_system_memory();
 
+  /*! \brief Returns currently free system memory (free RAM) in bytes. */
+  uint64_t get_free_system_memory();
+
+  /*! \brief Returns currently used system memory (used RAM) as percentage. */
+  double get_used_percent_system_memory();
+
+  /*! \brief Returns currently free system memory (free RAM) as percentage. */
+  double get_free_percent_system_memory();
+
   /*! \brief Starts recording 60 second CPU usage history. */
   bool start_recording_cpu_usage();
 
