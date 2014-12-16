@@ -39,6 +39,7 @@
  * - Battery stats
  */
 
+#include "system_stats.h"
 #include <mach/mach_init.h>
 #include <mach/mach_error.h>
 #include <mach/mach_host.h>
@@ -57,6 +58,10 @@
 #import <Cocoa/Cocoa.h>
 #import <IOKit/ps/IOPowerSources.h>
 #import <IOKit/ps/IOPSKeys.h>
+#include "sigar.h"
+extern "C" {
+#include "sigar_format.h"
+}
 
 #include <iostream>
 
@@ -65,51 +70,11 @@ const int cpu_usage_buffer_size = 60;
 
 namespace
 {
-  /* Gets a snapshot of the number of CPU ticks (idle and total) at this point (not from cache) */
-  void get_cpu_snapshot_from_file(uint64_t &idle_ticks, uint64_t &total_ticks)
-  {
-    mach_port_t mach_port = mach_host_self();
-    mach_msg_type_number_t count = HOST_CPU_LOAD_INFO_COUNT;
-    host_cpu_load_info_data_t cpu_stats;
-
-    int status = host_statistics(mach_port, HOST_CPU_LOAD_INFO, (host_info_t)&cpu_stats, &count);
-    if (status != KERN_SUCCESS)
-    {
-      std::string msg = "Failure while getting CPU usage. `host_statistics` \
-        failed with error code: " + std::to_string(status);
-      throw std::runtime_error(msg);
-    }
-    for (int i = 0; i < CPU_STATE_MAX; i++)
-    {
-      total_ticks += cpu_stats.cpu_ticks[i];
-    }
-    idle_ticks = cpu_stats.cpu_ticks[CPU_STATE_IDLE];
-  }
-
-  /* Find CPU usage given two snapshots */
-  double calculate_cpu_load(uint64_t idle_ticks_1, uint64_t total_ticks_1,
-    uint64_t idle_ticks_2, uint64_t total_ticks_2)
-  {
-    long long total_ticks_diff = total_ticks_2 - total_ticks_1;
-    long long idle_ticks_diff  = idle_ticks_2 -idle_ticks_1;
-    if (total_ticks_diff < 0 ||idle_ticks_diff < 0)
-    {
-      // Overflow detected.
-      throw std::runtime_error("Rare CPU time integer overflow occured. Try again.");
-    }
-    return 100 * (1.0 - (static_cast<double>(idle_ticks_diff) / total_ticks_diff));
-  }
-
-  /* Structure that represents a CPU snapshot */
-  struct cpu_usage_snapshot {
-    uint64_t idle_ticks;
-    uint64_t total_ticks;
-  };
-
+  sigar_t *sigar; // Instance of sigar used for getting CPU snapshots
   std::atomic<bool> cpu_usage_recording_started(false); // Whether buffering has started
   std::atomic<bool> cpu_usage_buffered(false); // Whether the entire buffer is full
   boost::mutex cpu_usage_snapshots_mutex;
-  cpu_usage_snapshot cpu_usage_snapshots[cpu_usage_buffer_size]; // A circular queue
+  sigar_cpu_t cpu_usage_snapshots[cpu_usage_buffer_size]; // A circular queue
   int cpu_usage_snapshots_head = 0; // index of head of queue
   int cpu_usage_snapshot_count = 0; // Number of snapshots read so far
   boost::thread *cpu_usage_thread;
@@ -128,34 +93,49 @@ namespace
       {
         cpu_usage_buffered.store(true);
       }
-      cpu_usage_snapshot snapshot;
-      get_cpu_snapshot_from_file(snapshot.idle_ticks, snapshot.total_ticks);
+      sigar_cpu_t snapshot;
+      if (sigar_cpu_get(sigar, &snapshot))
+      {
+        throw std::runtime_error("sigar_cpu_get failed. Stopped recording CPU usage.");
+      }
       cpu_usage_snapshots[cpu_usage_snapshots_head] = snapshot;
       cpu_usage_snapshots_head = (cpu_usage_snapshots_head + 1) % cpu_usage_buffer_size;
       cpu_usage_snapshots_mutex.unlock();
       // Wait for a second
       // CANNOT change this duration at the moment.
-      usleep(1000000);
+      boost::this_thread::sleep(boost::posix_time::millisec(1000));
     }
   }
 
-  /*! \brief Gets a snapshot of CPU times seconds_before seconds ago */
-  void get_cpu_snapshot(uint64_t &idle_ticks, uint64_t &total_ticks, uint32_t seconds_before)
+  /*! \brief Gets a snapshot of CPU times seconds_apart seconds apart */
+  void get_cpu_snapshots(sigar_cpu_t *old, sigar_cpu_t *current, uint64_t seconds_apart)
   {
-    if (!cpu_usage_recording_started.load() || seconds_before > cpu_usage_buffer_size ||
-      seconds_before > static_cast<uint64_t>(cpu_usage_snapshot_count))
+    if (!cpu_usage_recording_started.load() || seconds_apart > cpu_usage_buffer_size ||
+      seconds_apart > static_cast<uint64_t>(cpu_usage_snapshot_count))
     {
-      usleep(seconds_before * 1000000);
-      get_cpu_snapshot_from_file(idle_ticks, total_ticks);
+      // Buffered content isn't enough yet.
+      if (sigar_cpu_get(sigar, old))
+      {
+        throw std::runtime_error("sigar_cpu_get failed.");
+      }
+      boost::this_thread::sleep(boost::posix_time::millisec(seconds_apart * 1000));
+      if (sigar_cpu_get(sigar, current))
+      {
+        throw std::runtime_error("sigar_cpu_get failed.");
+      }
     }
     else
     {
       cpu_usage_snapshots_mutex.lock();
-      cpu_usage_snapshot snapshot = cpu_usage_snapshots[(cpu_usage_snapshots_head - seconds_before) %
+      *old = cpu_usage_snapshots[(cpu_usage_snapshots_head - 1 - seconds_apart) %
         cpu_usage_buffer_size];
+      *current = cpu_usage_snapshots[(cpu_usage_snapshots_head - 1) % 
+        cpu_usage_buffer_size];
+
+      std::cout << old->user << " " << old->sys << " " << old->nice << " " << old->wait << std::endl;
+      std::cout << current->user << " " << current->sys << " " << current->nice << " " << current->wait << std::endl;
+      std::cout << "---\n";
       cpu_usage_snapshots_mutex.unlock();
-      idle_ticks = snapshot.idle_ticks;
-      total_ticks = snapshot.total_ticks;
     }
   }
 };
@@ -169,78 +149,91 @@ namespace system_stats
   /*! \brief Returns total system memory (RAM) in bytes. */
   uint64_t get_total_system_memory()
   {
-    int mib[] = {CTL_HW, HW_MEMSIZE};
-    int64_t physical_memory;
-    size_t length = sizeof(int64_t);
-    sysctl(mib, 2, &physical_memory, &length, NULL, 0);
-    return static_cast<uint64_t>(physical_memory);
+    sigar_t *sigar;
+    sigar_mem_t sigar_mem;
+
+    if (sigar_open(&sigar))
+    {
+      throw std::runtime_error("sigar_open failed");
+    }
+    if (sigar_mem_get(sigar, &sigar_mem))
+    {
+      throw std::runtime_error("sigar_mem_get failed");
+    }
+    sigar_close(sigar);
+    return sigar_mem.total;
   }
 
   /*! \brief Returns currently used system memory (used RAM) in bytes. */
   uint64_t get_used_system_memory()
   {
-    vm_size_t page_size;
-    mach_port_t mach_port;
-    mach_msg_type_number_t count;
-    vm_statistics_data_t vm_stats;
+    sigar_t *sigar;
+    sigar_mem_t sigar_mem;
 
-    mach_port = mach_host_self();
-    count = sizeof(vm_stats) / sizeof(natural_t);
-    int status = host_page_size(mach_port, &page_size);
-    if (status != KERN_SUCCESS)
+    if (sigar_open(&sigar))
     {
-      std::string msg = "Failure while getting used system memory. `host_page_size` \
-        failed with error code: " + std::to_string(status);
-      throw std::runtime_error(msg);
+      throw std::runtime_error("sigar_open failed");
     }
-    status = host_statistics(mach_port, HOST_VM_INFO, (host_info_t)&vm_stats, &count);
-    if (status != KERN_SUCCESS)
+    if (sigar_mem_get(sigar, &sigar_mem))
     {
-      std::string msg = "Failure while getting used system memory. `host_statistics` \
-        failed with error code: " + std::to_string(status);
-      throw std::runtime_error(msg);
+      throw std::runtime_error("sigar_mem_get failed");
     }
-    uint64_t used_mem = (static_cast<uint64_t>(vm_stats.active_count) + 
-      static_cast<uint64_t>(vm_stats.inactive_count) + 
-      static_cast<uint64_t>(vm_stats.wire_count)) * page_size;
-    return used_mem;
+    sigar_close(sigar);
+    return sigar_mem.actual_used;
   }
 
-  /*!
-   * \brief Returns current CPU usage as a percentage.
-   * \param  wait_duration Time between capturing two CPU snapshots
-   * \return               CPU usage percentage
-   */
-  double get_cpu_usage(uint64_t wait_duration)
+  /*! \brief Returns currently free system memory (free RAM) in bytes. */
+  uint64_t get_free_system_memory()
   {
-    uint64_t total_ticks_1 = 0;
-    uint64_t total_ticks_2 = 0;
-    uint64_t idle_ticks_1 = 0;
-    uint64_t idle_ticks_2 = 0;
-    double percent;
+    sigar_t *sigar;
+    sigar_mem_t sigar_mem;
 
-    try
+    if (sigar_open(&sigar))
     {
-      // Get two CPU snapshots separated by wait_duration.
-      get_cpu_snapshot(idle_ticks_1, total_ticks_1, 0);
-      get_cpu_snapshot(idle_ticks_2, total_ticks_2, wait_duration);
-      std::cout << "1: " << idle_ticks_1 << " " << total_ticks_1 << std::endl;
-      std::cout << "2: " << idle_ticks_2 << " " << total_ticks_2 << std::endl;
+      throw std::runtime_error("sigar_open failed");
     }
-    catch (std::runtime_error &e)
+    if (sigar_mem_get(sigar, &sigar_mem))
     {
-      throw e;
+      throw std::runtime_error("sigar_mem_get failed");
     }
-    try
+    sigar_close(sigar);
+    return sigar_mem.actual_free;
+  }
+
+  /*! \brief Returns currently used system memory (used RAM) as percentage. */
+  double get_used_percent_system_memory()
+  {
+    sigar_t *sigar;
+    sigar_mem_t sigar_mem;
+
+    if (sigar_open(&sigar))
     {
-      // Calculate CPU usage based on the two snapshots.
-      percent = calculate_cpu_load(idle_ticks_1, total_ticks_1, idle_ticks_2, total_ticks_2);
+      throw std::runtime_error("sigar_open failed");
     }
-    catch (std::runtime_error &e)
+    if (sigar_mem_get(sigar, &sigar_mem))
     {
-      throw e;
+      throw std::runtime_error("sigar_mem_get failed");
     }
-    return percent;
+    sigar_close(sigar);
+    return sigar_mem.used_percent;
+  }
+
+  /*! \brief Returns currently free system memory (free RAM) as percentage. */
+  double get_free_percent_system_memory()
+  {
+    sigar_t *sigar;
+    sigar_mem_t sigar_mem;
+
+    if (sigar_open(&sigar))
+    {
+      throw std::runtime_error("sigar_open failed");
+    }
+    if (sigar_mem_get(sigar, &sigar_mem))
+    {
+      throw std::runtime_error("sigar_mem_get failed");
+    }
+    sigar_close(sigar);
+    return sigar_mem.free_percent;
   }
 
   /*! \brief Starts recording 60 second CPU usage history. */
@@ -251,6 +244,7 @@ namespace system_stats
       return false;
     }
     cpu_usage_recording_started.store(true);
+    sigar_open(&sigar);
     boost::thread::attributes attrs;
     cpu_usage_thread = new boost::thread(attrs, &record_cpu_usage);
     return true;
@@ -270,6 +264,7 @@ namespace system_stats
     boost::thread::attributes attrs;
     cpu_usage_thread->join();
     delete cpu_usage_thread;
+    sigar_close(sigar);
     return true;
   }
 
@@ -289,6 +284,32 @@ namespace system_stats
   bool is_cpu_usage_buffered()
   {
     return cpu_usage_buffered.load();
+  }
+  
+  /*!
+   * \brief Returns current CPU usage as a percentage.
+   * \param  wait_duration Time between capturing two CPU snapshots in seconds
+   * \return               CPU usage percentage
+   */
+  double get_cpu_usage(uint64_t wait_duration)
+  {
+    sigar_cpu_t old, current;
+    try
+    {
+      // Get two CPU usage snapshots wait_duration seconds apart
+      get_cpu_snapshots(&old, &current, wait_duration);
+    }
+    catch (std::runtime_error &e)
+    {
+      throw e;
+    }
+    sigar_cpu_perc_t percentage;
+    if (sigar_cpu_perc_calculate(&old, &current, &percentage))
+    {
+      throw std::runtime_error("sigar_cpu_perc_calculate failed");
+    }
+    std::cout << percentage.user << " " << percentage.sys << " " << percentage.nice << " " << percentage.wait << std::endl;
+    return percentage.combined * 100;
   }
 
   /*!
