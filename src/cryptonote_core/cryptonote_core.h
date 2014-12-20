@@ -28,6 +28,11 @@
 // 
 // Parts of this file are originally copyright (c) 2012-2013 The Cryptonote developers
 
+/*!
+ * \file cryptonote_core.h
+ * \brief header file for core class under cryptonote namespace.
+ */
+
 #pragma once
 
 #include <ctime>
@@ -49,11 +54,16 @@
 PUSH_WARNINGS
 DISABLE_VS_WARNINGS(4355)
 
+/*!
+ * \namespace cryptonote
+ * \brief Holds cryptonote related classes and helpers.
+ */
 namespace cryptonote
 {
-  /************************************************************************/
-  /*                                                                      */
-  /************************************************************************/
+   /*!
+    * \class core
+    * \brief Core cryptonote class
+    */
    class core: public i_miner_handler
    {
    public:
@@ -124,6 +134,12 @@ namespace cryptonote
      uint64_t get_target_blockchain_height() const;
 
      bool update_checkpoints();
+     /*!
+      * \brief Returns the time duration for which the core has been running.
+      *
+      * It returns the difference between the start_time and the current time.
+      */
+     boost::posix_time::time_duration time_elapsed() const;
 
    private:
      bool add_new_tx(const transaction& tx, const crypto::hash& tx_hash, const crypto::hash& tx_prefix_hash, size_t blob_size, tx_verification_context& tvc, bool keeped_by_block);
@@ -166,6 +182,8 @@ namespace cryptonote
      std::string m_checkpoints_path;
      time_t m_last_dns_checkpoints_update;
      time_t m_last_json_checkpoints_update;
+
+     boost::posix_time::ptime start_time; //!< The start time of the core, set during init.
    };
 }
 
